@@ -36,14 +36,19 @@ class ClusterManager<T extends ClusterItem> {
     this.stopClusteringZoom,
     EdgeInsets? padding,
     double? devicePixelRatio,
-  })  : markerBuilder = markerBuilder ?? _basicMarkerBuilder,
-        assert(
-          levels.length <= precision,
-          'Levels length should be less than or equal to precision',
-        ),
-        devicePixelRatio = devicePixelRatio ??
-            WidgetsBinding
-                .instance.platformDispatcher.views.first.devicePixelRatio {
+  }) : markerBuilder = markerBuilder ?? _basicMarkerBuilder,
+       assert(
+         levels.length <= precision,
+         'Levels length should be less than or equal to precision',
+       ),
+       devicePixelRatio =
+           devicePixelRatio ??
+           WidgetsBinding
+               .instance
+               .platformDispatcher
+               .views
+               .first
+               .devicePixelRatio {
     this.padding = padding != null
         ? EdgeInsets.only(
             top: padding.top * this.devicePixelRatio,
@@ -112,17 +117,24 @@ class ClusterManager<T extends ClusterItem> {
     _updateClusters(allowSkip);
   }
 
+  /// Only the latest update may publish, so overlapping runs can't overwrite
+  /// newer markers with stale ones.
+  int _generation = 0;
+
   Future<void> _updateClusters(bool allowSkip) async {
+    final generation = ++_generation;
     final visibleItems = await getVisibleItems();
     if (allowSkip && !shallUpdate(visibleItems)) {
       return;
     }
-    _visibleItems = visibleItems;
     final mapMarkers = await getMarkers(visibleItems);
 
-    final markers =
-        Set<Marker>.from(await Future.wait(mapMarkers.map(markerBuilder)));
+    final markers = Set<Marker>.from(
+      await Future.wait(mapMarkers.map(markerBuilder)),
+    );
+    if (generation != _generation) return;
 
+    _visibleItems = visibleItems;
     updateMarkers(markers);
   }
 
@@ -139,15 +151,18 @@ class ClusterManager<T extends ClusterItem> {
   }
 
   /// Method called on camera move
-  void onCameraMove(CameraPosition position,
-      {bool forceUpdate = false, bool allowSkip = false}) {
+  void onCameraMove(
+    CameraPosition position, {
+    bool forceUpdate = false,
+    bool allowSkip = false,
+  }) {
     _zoom = position.zoom;
     if (forceUpdate) {
       updateMap(allowSkip: allowSkip);
     }
   }
 
-    Future<LatLngBounds> _addPadding(LatLngBounds mapBounds) async {
+  Future<LatLngBounds> _addPadding(LatLngBounds mapBounds) async {
     final northEastL = mapBounds.northeast;
     final southWestL = mapBounds.southwest;
 
@@ -156,23 +171,23 @@ class ClusterManager<T extends ClusterItem> {
     }
 
     final [northEastC, southWestC] = await Future.wait([
-      GoogleMapsFlutterPlatform.instance.getScreenCoordinate(northEastL, mapId: _mapId!),
-      GoogleMapsFlutterPlatform.instance.getScreenCoordinate(southWestL, mapId: _mapId!),
+      GoogleMapsFlutterPlatform.instance.getScreenCoordinate(
+        northEastL,
+        mapId: _mapId!,
+      ),
+      GoogleMapsFlutterPlatform.instance.getScreenCoordinate(
+        southWestL,
+        mapId: _mapId!,
+      ),
     ]);
 
     final [northEastP, southWestP] = await Future.wait([
       GoogleMapsFlutterPlatform.instance.getLatLng(
-        northEastC.add(
-          x: padding!.right.toInt(),
-          y: -padding!.top.toInt(),
-        ),
+        northEastC.add(x: padding!.right.toInt(), y: -padding!.top.toInt()),
         mapId: _mapId!,
       ),
       GoogleMapsFlutterPlatform.instance.getLatLng(
-        southWestC.add(
-          x: -padding!.left.toInt(),
-          y: padding!.bottom.toInt(),
-        ),
+        southWestC.add(x: -padding!.left.toInt(), y: padding!.bottom.toInt()),
         mapId: _mapId!,
       ),
     ]);
@@ -186,8 +201,9 @@ class ClusterManager<T extends ClusterItem> {
   Future<List<T>> getVisibleItems() async {
     if (_mapId == null) return List.empty();
 
-    final mapBounds = await GoogleMapsFlutterPlatform.instance
-        .getVisibleRegion(mapId: _mapId!);
+    final mapBounds = await GoogleMapsFlutterPlatform.instance.getVisibleRegion(
+      mapId: _mapId!,
+    );
 
     final paddedBounds = await _addPadding(mapBounds);
 
@@ -212,8 +228,11 @@ class ClusterManager<T extends ClusterItem> {
     if (clusterAlgorithm == ClusterAlgorithm.geoHash ||
         visibleItems.length >= maxItemsForMaxDistAlgo) {
       final level = _findLevel(levels);
-      markers = _computeClusters(visibleItems, List.empty(growable: true),
-          level: level);
+      markers = _computeClusters(
+        visibleItems,
+        List.empty(growable: true),
+        level: level,
+      );
     } else {
       markers = _computeClustersWithMaxDist(visibleItems, _zoom);
     }
@@ -225,11 +244,13 @@ class ClusterManager<T extends ClusterItem> {
     // Bounds that cross the date line expand compared to their difference with the date line
     var lng = 0.0;
     if (bounds.northeast.longitude < bounds.southwest.longitude) {
-      lng = extraPercent *
+      lng =
+          extraPercent *
           ((180.0 - bounds.southwest.longitude) +
               (bounds.northeast.longitude + 180));
     } else {
-      lng = extraPercent *
+      lng =
+          extraPercent *
           (bounds.northeast.longitude - bounds.southwest.longitude);
     }
 
@@ -242,8 +263,10 @@ class ClusterManager<T extends ClusterItem> {
 
     return LatLngBounds(
       southwest: LatLng(bounds.southwest.latitude - lat, wLng),
-      northeast:
-          LatLng(bounds.northeast.latitude + lat, lng != 0 ? eLng : _maxLng),
+      northeast: LatLng(
+        bounds.northeast.latitude + lat,
+        lng != 0 ? eLng : _maxLng,
+      ),
     );
   }
 
@@ -268,17 +291,19 @@ class ClusterManager<T extends ClusterItem> {
   }
 
   List<Cluster<T>> _computeClustersWithMaxDist(
-      List<T> inputItems, double zoom) {
-    final scanner = MaxDistClustering<T>(
-      epsilon: maxDistParams?.epsilon ?? 20,
-    );
+    List<T> inputItems,
+    double zoom,
+  ) {
+    final scanner = MaxDistClustering<T>(epsilon: maxDistParams?.epsilon ?? 20);
 
     return scanner.run(inputItems, _getZoomLevel(zoom));
   }
 
   List<Cluster<T>> _computeClusters(
-      List<T> inputItems, List<Cluster<T>> markerItems,
-      {int level = 5}) {
+    List<T> inputItems,
+    List<Cluster<T>> markerItems, {
+    int level = 5,
+  }) {
     if (inputItems.isEmpty) return markerItems;
     final nextGeohash = inputItems[0].geohash.substring(0, level);
 
@@ -289,7 +314,8 @@ class ClusterManager<T extends ClusterItem> {
     markerItems.add(Cluster<T>.fromItems(items));
 
     final newInputList = List<T>.from(
-        inputItems.where((i) => i.geohash.substring(0, level) != nextGeohash));
+      inputItems.where((i) => i.geohash.substring(0, level) != nextGeohash),
+    );
 
     return _computeClusters(newInputList, markerItems, level: level);
   }
@@ -311,8 +337,10 @@ class ClusterManager<T extends ClusterItem> {
         );
       };
 
-  static Future<BitmapDescriptor> _getBasicClusterBitmap(int size,
-      {String? text}) async {
+  static Future<BitmapDescriptor> _getBasicClusterBitmap(
+    int size, {
+    String? text,
+  }) async {
     final pictureRecorder = PictureRecorder();
     final canvas = Canvas(pictureRecorder);
     final paint1 = Paint()..color = Colors.red;
@@ -324,9 +352,10 @@ class ClusterManager<T extends ClusterItem> {
         ..text = TextSpan(
           text: text,
           style: TextStyle(
-              fontSize: size / 3,
-              color: Colors.white,
-              fontWeight: FontWeight.normal),
+            fontSize: size / 3,
+            color: Colors.white,
+            fontWeight: FontWeight.normal,
+          ),
         )
         ..layout();
 
